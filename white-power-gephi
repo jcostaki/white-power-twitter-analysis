@@ -1,0 +1,104 @@
+# Twitter data gathered from users of the following hashtags: 
+# antiwhite, whitepower, whitegenocide, whitelivesmatter, whitesupremacy, and whitesupremacist
+# Users timelines were pulled into non-standard (twitter) JSON format resulting in some lost data
+# Lines 6-21 used to parse JSON files, save as separate CSV files, and read the CSV files into 1 large dataframe.
+
+library(fs)
+jsons=fs::dir_ls(path='.',glob='*.json')
+
+library(tidyverse)
+library(purrr)
+library(rtweet)
+bigdf=map_df(jsons,~rtweet:::.parse_stream(.))
+user_dat=distinct(bigdf,screen_name,description)
+save_as_csv(bigdf, "whitesupremacy")
+
+library(plyr)
+library(readr)
+mydir = "csv"
+myfiles = list.files(path=mydir, pattern='*.csv', full.names = TRUE)
+myfiles
+dat_csv = ldply(myfiles, read_csv)
+
+# End prep -
+
+# The following code was taken and adapted from :https://github.com/TrumpRussiaInvestigationTwitterResearch/trump-russia-bot-analysis/blob/master/scripts/analytics/trump_cluster_2.Rmd
+# {r netprep}
+library(dplyr)
+library(readr)
+
+df = dat_csv
+df=filter(df,is_retweet==1)
+
+#missing data in each sample, observations go to zero
+#df=df[complete.cases(df),]
+
+df$status_id=as.character(df$status_id)
+df=distinct(df,status_id,.keep_all=TRUE)
+
+#{r network}
+#make the graph
+#filter to only count those posts that have actually been retweeted
+edges = data.frame(from=df$screen_name,to=df$retweet_screen_name,stringsAsFactors = F)  %>% group_by(from,to) %>% summarize(value = n())
+#Build a df for nodes
+nodes <- data.frame(id = unique(c(edges$from, edges$to)),
+                    label = unique(c(edges$from, edges$to)),
+                    stringsAsFactors = F) %>% tbl_df
+library(igraph)
+rt_graph <- make_empty_graph() + vertices(nodes$id) +
+  edges(as.vector(rbind(edges$from, edges$to)), weight = edges$value)
+#takes the cutoff as a fraction (usually .01-.001) equivalent to the 
+deg_subset<-function(cutoff,g){
+  rc=1-cutoff
+  dfv=data.frame(V=as.vector(V(g)),screen_name=V(g)$name,degree(g))
+  names(dfv)[3]="degree"
+  dfv=cbind(dfv,quantile=cut(dfv$degree,
+                             breaks=quantile(dfv$degree,probs=c(0,rc,1)),
+                             labels=c("Bottom99",'Top1'),include.lowest=T))
+  dfv$quantile=as.character(dfv$quantile)
+  dfv2=arrange(dfv,desc(quantile))
+  dfv3=dfv2[dfv2$quantile=='Top1',]
+  sg=induced_subgraph(g,dfv3$V)
+  res=list(g=sg,df=dfv3)
+  return(res)
+}
+
+res=deg_subset(.001,rt_graph)
+res_df=res$df
+sub_g=res$g
+
+#error in cbind - "object m_b not found"
+res_df=cbind(res_df,mod_blouv=m_b$membership,mod_label=m_l$membership)
+
+res_df=arrange(res_df,desc(degree))
+write_csv(res_df,"twitterproj.csv")
+#not needed anymore (did at the top)
+#sub_g=delete_vertices(sub_g,"realDonaldTrump")
+sub_gc=as.undirected(sub_g, mode = "collapse") 
+m_e=cluster_leading_eigen(sub_gc) # wants undirected  (duh its an eigen method) still has problems?
+m_c=cluster_walktrap(sub_gc)
+m_b=cluster_louvain(sub_gc)
+m_l=cluster_label_prop(sub_gc)
+m_i=cluster_infomap(sub_gc)
+m_f=cluster_fast_greedy(sub_gc)
+#m_bt=cluster_edge_betweenness(sub_g) Don't run this one, it is EXTREMELY slow compared to other methods
+res_df=cbind(res_df,mod_blouv=m_b$membership,mod_label=m_l$membership)
+#normally we can just directly save the subgraph without
+#having to add these extra attributes
+#this was the first time I had to do this extra step
+#however, this is how and where you save these extra variables to send to gephi
+sub_gc2 = sub_gc %>% set_vertex_attr("mod_walktrap",value=m_c$membership) %>% 
+  set_vertex_attr("mod_blouvain",value=m_b$membership) %>%
+  set_vertex_attr("mod_label",value=m_l$membership) %>%
+  set_vertex_attr("mod_infomap",value=m_i$membership) %>%
+  set_vertex_attr("mod_eigen",value=m_e$membership) %>%
+  set_vertex_attr("mod_greedy",value=m_f$membership)
+
+list.graph.attributes(sub_gc2)
+#final output for gephi
+library(rgexf)
+rg=igraph.to.gexf(sub_gc2)
+f=file("rtweet_clusters.gexf")
+writeLines(rg$graph, con = f)
+close(f)
+#library(stringr)
