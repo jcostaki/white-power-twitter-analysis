@@ -1,0 +1,79 @@
+#this script builds 2 plots (pro or anti white power groups/individuals) describing which platforms they share or use for information
+#some issues: slight changes in domain names may have caused some domains to be filtered out, 
+  #although they should still fall under the same domain e.g., politico.com and politi.co
+  #hashtag usage may overlap - some pro individuals may use anti hashtags
+  #youtube is used for sharing information, but may skew results and was removed - twitter?
+
+library(dplyr)
+library(readr)
+
+df = dat_csv
+
+domain <- function(x) strsplit(gsub("http://|https://|www\\.", "", x), "/")[[c(1, 1)]]
+domain_name <- sapply(dat_csv$urls_expanded_url, 
+                      domain, 
+                      USE.NAMES = FALSE)
+library(urltools)
+parsed_addresses <- url_parse(domain_name)
+df$domain <- parsed_addresses$domain
+
+fullset <- df
+df=filter(df,domain != "")
+
+#half of URLs linked are twitter and youtube domains
+#after removal, observations drop from 70k to 35k
+df3 <- df %>% group_by(domain) %>% 
+  filter(
+  domain != "twitter.com" &
+  domain != "youtu.be" &
+  domain != "youtube.com"
+  )
+
+white <- filter(df3, grepl('whitepower|whitesupremacy|
+                            whitesupremacist|antiwhite|
+                            whitegenocide|
+                            whitelivesmatter', hashtags))
+pro <- filter(df3, grepl('whitepower|whitesupremacy|
+                          whitesupremacist', hashtags))
+anti <- filter(df3, grepl('antiwhite|whitegenocide|
+                           whitelivesmatter', hashtags))
+
+#pro and anti subsets dont add up to white, there is some overlap in hashtag usage e.g., antiwhite used with whitepower
+
+pro2 <- pro %>% group_by(domain) %>% 
+  filter(n()>2)
+anti2 <- anti %>% group_by(domain) %>% 
+  filter(n()>2)
+
+###plots
+library(ggplot2)
+
+pro_plot <- ggplot(pro2, aes(x=domain)) +
+  geom_bar(aes(fill = screen_name)) + 
+  coord_flip() +
+  labs(title="Pro WhitePower",
+       x="Domains associated with pro-hashtags",
+       y="Number of times domain was linked",
+       fill = "Users") +
+  scale_y_continuous(breaks=seq(0, 85, 5),
+                     labels = seq(0, 85, 5)) + 
+  theme(legend.position="bottom") +
+  guides(shape = guide_legend(override.aes = list(size=10)))
+pro_plot
+dev.print(png, "pro_plot.png", width = 1500, height = 750)
+dev.off()
+
+anti_plot <- ggplot(anti2, aes(x=domain)) +
+  geom_bar(aes(fill = screen_name)) +
+  coord_flip() +
+  labs(title="Anti WhitePower",
+       x="Domains associated with pro-hashtags",
+       y="Number of times domain was linked",
+       fill = "User") +
+  scale_y_continuous(breaks=seq(0, 75, 5),
+                     labels = seq(0, 75, 5)) +
+  theme(legend.position="bottom") +
+  guides(shape = guide_legend(override.aes = list(size=10)))
+anti_plot
+dev.print(png, "anti_plot.png", width = 1500, height = 750)
+dev.off()
