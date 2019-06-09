@@ -1,0 +1,28 @@
+# The following code was taken and adapted from :https://github.com/TrumpRussiaInvestigationTwitterResearch/trump-russia-bot-analysis/blob/master/scripts/analytics/trump_cluster_2.Rmd
+
+library(dplyr)
+library(readr)
+
+df = dat_csv
+df=filter(df,is_retweet==TRUE)
+
+df$status_id=as.character(df$status_id)
+df=distinct(df,status_id,.keep_all=TRUE)
+
+#  make the graph
+# filter to only count those posts that have actually been retweeted
+edges = data.frame(from=df$screen_name,to=df$retweet_screen_name,stringsAsFactors = F)  %>% group_by(from,to) %>% summarize(value = n())
+# build a df for nodes
+nodes <- data.frame(id = unique(c(edges$from, edges$to)),
+                    label = unique(c(edges$from, edges$to)),
+                    stringsAsFactors = F) %>% tbl_df
+library(igraph)
+rt_graph <- make_empty_graph() + vertices(nodes$id) +
+  edges(as.vector(rbind(edges$from, edges$to)), weight = edges$value)
+
+# final output for gephi
+library(rgexf)
+rg2=igraph.to.gexf(rt_graph)
+f=file("whitepower-twitter-clusters.gexf")
+writeLines(rg2$graph, con = f)
+close(f)
