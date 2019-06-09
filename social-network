@@ -22,7 +22,7 @@ rt_graph <- make_empty_graph() + vertices(nodes$id) +
 
 # final output for gephi
 library(rgexf)
-rg2=igraph.to.gexf(rt_graph)
-f=file("whitepower-twitter-clusters.gexf")
-writeLines(rg2$graph, con = f)
+rg=igraph.to.gexf(rt_graph)
+f=file("retweet-clusters.gexf")
+writeLines(rg$graph, con = f)
 close(f)
