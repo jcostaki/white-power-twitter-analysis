@@ -1,4 +1,9 @@
-#the following script creates 2 plots of hashtags used by the pro/anti whitepower communities (with a few filters applied)
+#this script builds 2 plots (pro or anti white power groups/individuals) describing which platforms they share or use for information
+#some issues: slight changes in domain names may have caused some domains to be filtered out, 
+  #although they should still fall under the same domain e.g., politico.com and politi.co
+  #hashtag usage may overlap - some pro individuals may use anti hashtags
+#youtube is used for sharing information, but may skew results and was removed - twitter?
+
 #below that a gexf file is created for analysis in gephi
 
 library(dplyr)
@@ -90,8 +95,6 @@ df$status_id=as.character(df$status_id)
 df=distinct(df,status_id,.keep_all=TRUE)
 
 #  make the graph
-# filter to only count those posts that have actually been retweeted
-#edges = data.frame(from=df$screen_name,to=df$retweet_screen_name,stringsAsFactors = F)  %>% group_by(from,to) %>% summarize(value = n())
 edges = data.frame(from=df$domain, to=df$screen_name, stringsAsFactors = F) %>% group_by(from, to) %>% summarize(value = n())
 # build a df for nodes
 nodes <- data.frame(id = unique(c(edges$from, edges$to)),
