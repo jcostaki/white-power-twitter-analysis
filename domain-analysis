@@ -1,0 +1,110 @@
+#the following script creates 2 plots of hashtags used by the pro/anti whitepower communities (with a few filters applied)
+#below that a gexf file is created for analysis in gephi
+
+library(dplyr)
+library(readr)
+
+df = dat_csv
+
+domain <- function(x) strsplit(gsub("http://|https://|www\\.", "", x), "/")[[c(1, 1)]]
+domain_name <- sapply(dat_csv$urls_expanded_url, 
+                      domain, 
+                      USE.NAMES = FALSE)
+
+#conversion of igraph to gexf near the end of the script
+#was giving an xml parse error
+#i think its because some tweets link more than one website
+#causing an '&' sign to show up in the data, i couldn't 
+#resolve the error without using these next few lines, 
+#but it removes the additional domains
+library(urltools)
+parsed_addresses <- url_parse(domain_name)
+df$domain <- parsed_addresses$domain
+
+fullset <- df
+df=filter(df,domain != "")
+
+#half of URLs linked are twitter and youtube domains
+#following filter drops obs from 70k to 35k
+df3 <- df %>% group_by(domain) %>% 
+  filter(
+  domain != "twitter.com" &
+  domain != "youtu.be" &
+  domain != "youtube.com"
+  )
+
+white <- filter(df3, grepl('whitepower|whitesupremacy|
+                            whitesupremacist|antiwhite|
+                            whitegenocide|
+                            whitelivesmatter', hashtags))
+pro <- filter(df3, grepl('whitepower|whitesupremacy|
+                          whitesupremacist', hashtags))
+anti <- filter(df3, grepl('antiwhite|whitegenocide|
+                           whitelivesmatter', hashtags))
+
+#pro and anti subsets dont add up to white
+#there is some overlap in hashtag usage 
+#e.g., antiwhite used with whitepower
+
+pro2 <- pro %>% group_by(domain) %>% 
+  filter(n()>2)
+anti2 <- anti %>% group_by(domain) %>% 
+  filter(n()>2)
+
+###plots
+library(ggplot2)
+
+pro_plot <- ggplot(pro2, aes(x=domain)) +
+  geom_bar(aes(fill = screen_name)) + 
+  coord_flip() +
+  labs(title="Pro WhitePower",
+       x="Domains associated with pro-hashtags",
+       y="Number of times domain was linked",
+       fill = "Users") +
+  scale_y_continuous(breaks=seq(0, 85, 5),
+                     labels = seq(0, 85, 5)) + 
+  theme(legend.position="bottom") +
+  guides(shape = guide_legend(override.aes = list(size=10)))
+pro_plot
+dev.print(png, "pro_plot.png", width = 1500, height = 750)
+dev.off()
+
+anti_plot <- ggplot(anti2, aes(x=domain)) +
+  geom_bar(aes(fill = screen_name)) +
+  coord_flip() +
+  labs(title="Anti WhitePower",
+       x="Domains associated with anti-hashtags",
+       y="Number of times domain was linked",
+       fill = "User") +
+  scale_y_continuous(breaks=seq(0, 75, 5),
+                     labels = seq(0, 75, 5)) +
+  theme(legend.position="bottom") +
+  guides(shape = guide_legend(override.aes = list(size=10)))
+anti_plot
+dev.print(png, "anti_plot.png", width = 1500, height = 750)
+dev.off()
+
+###
+
+df$status_id=as.character(df$status_id)
+df=distinct(df,status_id,.keep_all=TRUE)
+
+#  make the graph
+# filter to only count those posts that have actually been retweeted
+#edges = data.frame(from=df$screen_name,to=df$retweet_screen_name,stringsAsFactors = F)  %>% group_by(from,to) %>% summarize(value = n())
+edges = data.frame(from=df$domain, to=df$screen_name, stringsAsFactors = F) %>% group_by(from, to) %>% summarize(value = n())
+# build a df for nodes
+nodes <- data.frame(id = unique(c(edges$from, edges$to)),
+                    label = unique(c(edges$from, edges$to)),
+                    stringsAsFactors = F) %>% tbl_df
+
+library(igraph)
+rt_graph <- make_empty_graph() + vertices(nodes$id) +
+  edges(as.vector(rbind(edges$from, edges$to)), weight = edges$value)
+
+# final output for gephi
+library(rgexf)
+rg2=igraph.to.gexf(rt_graph)
+f=file("domain-clusters.gexf")
+writeLines(rg2$graph, con = f)
+close(f)
