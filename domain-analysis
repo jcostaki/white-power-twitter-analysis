@@ -1,21 +1,38 @@
-#this script builds 2 plots (pro or anti white power groups/individuals) describing which platforms they share or use for information
-#some issues: slight changes in domain names may have caused some domains to be filtered out, 
-  #although they should still fall under the same domain e.g., politico.com and politi.co
-  #hashtag usage may overlap - some pro individuals may use anti hashtags
-#youtube is used for sharing information, but may skew results and was removed - twitter?
+#data is 6 csv files of tweets from users of the 6 hashtags
+#antiwhite, whitegenocide, whitelivesmatter
+#whitepower, whitesupremacy, whitesupremacist
+#data was stored in separate folders
 
-#below that a gexf file is created for analysis in gephi
+#the script below ultimately builds 2 smaller plots that
+#describe platforms used directly in conjunction with the hashtags above
+#and also builds 2 gexf files for domain/platform analysis in gephi
+
+#reading each set of hashtags into separate pro/anti groups
+library(plyr)
+library(readr)
+mydir = "pro"
+myfiles = list.files(path=mydir, pattern='*.csv', full.names = TRUE)
+pro_csv = ldply(myfiles, read_csv)
+
+mydir = "anti"
+myfiles = list.files(path=mydir, pattern='*.csv', full.names = TRUE)
+anti_csv = ldply(myfiles, read_csv)
+
+#coding the groups
+pro_csv$pro_anti_coding <- 0
+anti_csv$pro_anti_coding <- 1
+df <- rbind(pro_csv, anti_csv)
+table(df$pro_anti_coding)
+#40% pro, 60% anti
 
 library(dplyr)
 library(readr)
 
-df = dat_csv
-
+#function to strip URL to domain only
 domain <- function(x) strsplit(gsub("http://|https://|www\\.", "", x), "/")[[c(1, 1)]]
-domain_name <- sapply(dat_csv$urls_expanded_url, 
+domain_name <- sapply(df$urls_expanded_url, 
                       domain, 
                       USE.NAMES = FALSE)
-
 #conversion of igraph to gexf near the end of the script
 #was giving an xml parse error
 #i think its because some tweets link more than one website
@@ -26,35 +43,34 @@ library(urltools)
 parsed_addresses <- url_parse(domain_name)
 df$domain <- parsed_addresses$domain
 
-fullset <- df
 df=filter(df,domain != "")
+table(df$pro_anti_coding)
+#38% pro, 62% anti
+
+pro <- df %>% filter(pro_anti_coding == 0)
+anti <- df %>% filter(pro_anti_coding ==1)
 
 #half of URLs linked are twitter and youtube domains
 #following filter drops obs from 70k to 35k
-df3 <- df %>% group_by(domain) %>% 
+pro2 <- df %>% group_by(domain) %>% 
   filter(
-  domain != "twitter.com" &
-  domain != "youtu.be" &
-  domain != "youtube.com"
-  )
+    domain != "twitter.com" &
+    domain != "youtu.be" &
+    domain != "youtube.com" &
+    domain != "instagram.com") %>%
+  filter(grepl(
+    'antiwhite|whitegenocide|whitelivesmatter', hashtags))
+pro2 <- pro2 %>% group_by(domain) %>% filter(n()>2)
 
-white <- filter(df3, grepl('whitepower|whitesupremacy|
-                            whitesupremacist|antiwhite|
-                            whitegenocide|
-                            whitelivesmatter', hashtags))
-pro <- filter(df3, grepl('whitepower|whitesupremacy|
-                          whitesupremacist', hashtags))
-anti <- filter(df3, grepl('antiwhite|whitegenocide|
-                           whitelivesmatter', hashtags))
-
-#pro and anti subsets dont add up to white
-#there is some overlap in hashtag usage 
-#e.g., antiwhite used with whitepower
-
-pro2 <- pro %>% group_by(domain) %>% 
-  filter(n()>2)
-anti2 <- anti %>% group_by(domain) %>% 
-  filter(n()>2)
+anti2 <- df %>% group_by(domain) %>% 
+  filter(
+    domain != "twitter.com" &
+    domain != "youtu.be" &
+    domain != "youtube.com" &
+    domain != "instagram.com") %>%
+  filter(grepl(
+    'whitepower|whitesupremacy|whitesupremacist', hashtags))
+anti2 <- anti2 %>% group_by(domain) %>% filter(n()>2)
 
 ###plots
 library(ggplot2)
@@ -89,25 +105,41 @@ anti_plot
 dev.print(png, "anti_plot.png", width = 1500, height = 750)
 dev.off()
 
-###
+#building the pro graph
+pro$status_id=as.character(pro$status_id)
+pro=distinct(pro,status_id,.keep_all=TRUE)
 
-df$status_id=as.character(df$status_id)
-df=distinct(df,status_id,.keep_all=TRUE)
 
-#  make the graph
-edges = data.frame(from=df$domain, to=df$screen_name, stringsAsFactors = F) %>% group_by(from, to) %>% summarize(value = n())
-# build a df for nodes
-nodes <- data.frame(id = unique(c(edges$from, edges$to)),
-                    label = unique(c(edges$from, edges$to)),
+pro_edges = data.frame(from=pro$domain, to=pro$screen_name, stringsAsFactors = F) %>% group_by(from, to) %>% summarize(value = n())
+pro_nodes <- data.frame(id = unique(c(pro_edges$from, pro_edges$to)),
+                    label = unique(c(pro_edges$from, pro_edges$to)),
                     stringsAsFactors = F) %>% tbl_df
-
 library(igraph)
-rt_graph <- make_empty_graph() + vertices(nodes$id) +
-  edges(as.vector(rbind(edges$from, edges$to)), weight = edges$value)
+pro_rt_graph <- make_empty_graph() + vertices(pro_nodes$id) +
+  edges(as.vector(rbind(pro_edges$from, pro_edges$to)), weight = pro_edges$value)
 
 # final output for gephi
 library(rgexf)
-rg2=igraph.to.gexf(rt_graph)
-f=file("domain-clusters.gexf")
-writeLines(rg2$graph, con = f)
+pro_rg=igraph.to.gexf(pro_rt_graph)
+f=file("pro-domain-clusters.gexf")
+writeLines(pro_rg$graph, con = f)
+close(f)
+
+#building the anti graph
+anti$status_id=as.character(anti$status_id)
+anti=distinct(anti,status_id,.keep_all=TRUE)
+
+anti_edges = data.frame(from=anti$domain, to=anti$screen_name, stringsAsFactors = F) %>% group_by(from, to) %>% summarize(value = n())
+anti_nodes <- data.frame(id = unique(c(anti_edges$from, anti_edges$to)),
+                        label = unique(c(anti_edges$from, anti_edges$to)),
+                        stringsAsFactors = F) %>% tbl_df
+library(igraph)
+anti_rt_graph <- make_empty_graph() + vertices(anti_nodes$id) +
+  edges(as.vector(rbind(anti_edges$from, anti_edges$to)), weight = anti_edges$value)
+
+# final output for gephi
+library(rgexf)
+anti_rg=igraph.to.gexf(anti_rt_graph)
+f=file("anti-domain-clusters.gexf")
+writeLines(anti_rg$graph, con = f)
 close(f)
